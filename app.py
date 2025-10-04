@@ -20,60 +20,69 @@ app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'your-secret-key-here')
 CORS(app)
 
-# Configurações do Mercado Pago (PRODUÇÃO)
+# Configurações do Mercado Pago (PRODUÇÃO) - com tratamento de erro
 MP_ACCESS_TOKEN = os.getenv('MP_ACCESS_TOKEN')
 if not MP_ACCESS_TOKEN:
-    raise ValueError("MP_ACCESS_TOKEN não encontrado no arquivo .env")
+    print("❌ ERRO: MP_ACCESS_TOKEN não configurado!")
+    print("Configure a variável de ambiente MP_ACCESS_TOKEN no Render Dashboard")
+    # Para desenvolvimento, usar um token padrão temporário
+    MP_ACCESS_TOKEN = "TEST-TEMP"
 
 if MP_ACCESS_TOKEN.startswith('TEST-'):
     print("⚠️  AVISO: Usando token de TESTE. "
           "Para produção, use token de PRODUÇÃO!")
 
-sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
-
+try:
+    sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
+    print("✅ Mercado Pago SDK inicializado com sucesso")
+except Exception as e:
+    print(f"❌ Erro ao inicializar Mercado Pago SDK: {e}")
+    sdk = None
 
 # Configuração do banco de dados SQLite
 def init_db():
-    conn = sqlite3.connect('qi_test.db')
-    cursor = conn.cursor()
+    try:
+        conn = sqlite3.connect('qi_test.db')
+        cursor = conn.cursor()
 
-    # Tabela para armazenar testes
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS tests (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            uuid TEXT UNIQUE NOT NULL,
-            user_answers TEXT NOT NULL,
-            score INTEGER NOT NULL,
-            level TEXT NOT NULL,
-            correct_answers INTEGER NOT NULL,
-            percentage REAL NOT NULL,
-            payment_id TEXT,
-            payment_status TEXT DEFAULT 'pending',
-            qr_code_data TEXT,
-            customer_email TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            expires_at TIMESTAMP
-        )
-    ''')
+        # Tabela para armazenar testes
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                uuid TEXT UNIQUE NOT NULL,
+                user_answers TEXT NOT NULL,
+                score INTEGER NOT NULL,
+                level TEXT NOT NULL,
+                correct_answers INTEGER NOT NULL,
+                percentage REAL NOT NULL,
+                payment_id TEXT,
+                payment_status TEXT DEFAULT 'pending',
+                qr_code_data TEXT,
+                customer_email TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP
+            )
+        ''')
 
-    # Tabela para logs de webhook
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS webhook_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            payment_id TEXT,
-            status TEXT,
-            data TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
+        # Tabela para logs de webhook
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS webhook_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                payment_id TEXT,
+                status TEXT,
+                data TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
 
-    conn.commit()
-    conn.close()
-
+        conn.commit()
+        conn.close()
+        print("✅ Banco de dados inicializado com sucesso")
+    except Exception as e:
+        print(f"❌ Erro ao inicializar banco de dados: {e}")
 
 # Inicializar banco
 init_db()
-
 
 # Limpeza automática de testes expirados
 def cleanup_expired_tests():
@@ -96,11 +105,9 @@ def cleanup_expired_tests():
         # Executar a cada hora
         time.sleep(3600)
 
-
 # Iniciar thread de limpeza
 cleanup_thread = threading.Thread(target=cleanup_expired_tests, daemon=True)
 cleanup_thread.start()
-
 
 @app.route('/')
 def index():
@@ -108,18 +115,27 @@ def index():
         with open('index.html', 'r', encoding='utf-8') as f:
             return f.read()
     except FileNotFoundError:
+        print("❌ index.html não encontrado")
         return jsonify({"error": "index.html não encontrado"}), 404
-
 
 @app.route('/submit_test', methods=['POST'])
 def submit_test():
     """Recebe as respostas do teste e calcula a pontuação"""
     try:
+        print("📝 Iniciando processamento do teste...")
+        
         data = request.json
+        if not data:
+            print("❌ Dados JSON não recebidos")
+            return jsonify({"error": "Dados não recebidos"}), 400
+            
         user_answers = data.get('answers', [])
         customer_email = data.get('email', 'cliente@qi-test.com.br')
+        
+        print(f"📊 Respostas recebidas: {len(user_answers)} respostas")
 
         if len(user_answers) != 30:
+            print(f"❌ Número incorreto de respostas: {len(user_answers)}")
             return jsonify({"error": "Número incorreto de respostas"}), 400
 
         # Respostas corretas (as mesmas do frontend)
@@ -167,44 +183,53 @@ def submit_test():
         # Gerar UUID único
         test_uuid = str(uuid.uuid4())
 
-        # Salvar no banco (sem pagamento ainda)
-        conn = sqlite3.connect('qi_test.db')
-        cursor = conn.cursor()
+        try:
+            # Salvar no banco (sem pagamento ainda)
+            conn = sqlite3.connect('qi_test.db')
+            cursor = conn.cursor()
 
-        expires_at = datetime.now() + timedelta(hours=24)
+            expires_at = datetime.now() + timedelta(hours=24)
 
-        cursor.execute('''
-            INSERT INTO tests (uuid, user_answers, score, level,
-                               correct_answers, percentage, customer_email,
-                               expires_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (test_uuid, json.dumps(user_answers), iq_score, level,
-              correct_count, percentage, customer_email, expires_at))
+            cursor.execute('''
+                INSERT INTO tests (uuid, user_answers, score, level,
+                                   correct_answers, percentage, customer_email,
+                                   expires_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (test_uuid, json.dumps(user_answers), iq_score, level,
+                  correct_count, percentage, customer_email, expires_at))
 
-        conn.commit()
-        conn.close()
+            conn.commit()
+            conn.close()
 
-        print(f"✅ Teste criado: {test_uuid} - QI: {iq_score} - "
-              f"Level: {level}")
+            print(f"✅ Teste criado: {test_uuid} - QI: {iq_score} - "
+                  f"Level: {level}")
 
-        return jsonify({
-            'success': True,
-            'test_uuid': test_uuid,
-            'score': iq_score,
-            'level': level,
-            'correct_answers': correct_count,
-            'percentage': round(percentage, 1)
-        })
+            return jsonify({
+                'success': True,
+                'test_uuid': test_uuid,
+                'score': iq_score,
+                'level': level,
+                'correct_answers': correct_count,
+                'percentage': round(percentage, 1)
+            })
+            
+        except Exception as db_error:
+            print(f"❌ Erro no banco de dados: {db_error}")
+            return jsonify({"error": "Erro ao salvar teste"}), 500
 
     except Exception as e:
         print(f"❌ Erro ao processar teste: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
-
 
 @app.route('/create_payment', methods=['POST'])
 def create_payment():
     """Cria um pagamento PIX via Mercado Pago - PRODUÇÃO"""
     try:
+        if not sdk:
+            return jsonify({"error": "Mercado Pago não configurado"}), 500
+            
         data = request.json
         test_uuid = data.get('test_uuid')
 
@@ -221,10 +246,11 @@ def create_payment():
             conn.close()
             return jsonify({"error": "Teste não encontrado"}), 404
 
-        # URL base para webhook (Render)
-        base_url = os.getenv('BASE_URL', 'https://seu-app.onrender.com')
-        if 'localhost' in request.host_url:
-            base_url = request.host_url.rstrip('/')
+        # URL base para webhook
+        base_url = os.getenv('BASE_URL', request.host_url.rstrip('/'))
+        
+        print(f"💳 Criando pagamento para teste: {test_uuid}")
+        print(f"🔗 Webhook URL: {base_url}/webhook/mercadopago")
 
         # Criar pagamento no Mercado Pago (PRODUÇÃO)
         payment_data = {
@@ -246,9 +272,6 @@ def create_payment():
                 "integration": "qi_test_render"
             }
         }
-
-        print(f"💳 Criando pagamento para teste: {test_uuid}")
-        print(f"🔗 Webhook URL: {base_url}/webhook/mercadopago")
 
         payment_response = sdk.payment().create(payment_data)
 
@@ -302,8 +325,9 @@ def create_payment():
 
     except Exception as e:
         print(f"❌ Erro ao criar pagamento: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
-
 
 @app.route('/webhook/mercadopago', methods=['POST'])
 def mercadopago_webhook():
@@ -330,7 +354,7 @@ def mercadopago_webhook():
                 data.get('type') == 'payment'):
             payment_id = data.get('data', {}).get('id')
 
-            if payment_id:
+            if payment_id and sdk:
                 print(f"💳 Verificando pagamento ID: {payment_id}")
 
                 # Buscar detalhes do pagamento
@@ -378,8 +402,9 @@ def mercadopago_webhook():
 
     except Exception as e:
         print(f"❌ Erro no webhook: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
-
 
 @app.route('/check_payment/<test_uuid>', methods=['GET'])
 def check_payment(test_uuid):
@@ -415,7 +440,6 @@ def check_payment(test_uuid):
     except Exception as e:
         print(f"❌ Erro ao verificar pagamento: {e}")
         return jsonify({"error": str(e)}), 500
-
 
 @app.route('/get_result/<test_uuid>', methods=['GET'])
 def get_result(test_uuid):
@@ -461,7 +485,6 @@ def get_result(test_uuid):
         print(f"❌ Erro ao obter resultado: {e}")
         return jsonify({"error": str(e)}), 500
 
-
 @app.route('/health', methods=['GET'])
 def health():
     """Endpoint de saúde da aplicação"""
@@ -469,9 +492,9 @@ def health():
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "version": "2.0.0-production",
-        "environment": os.getenv('FLASK_ENV', 'development')
+        "environment": os.getenv('FLASK_ENV', 'development'),
+        "mp_configured": sdk is not None
     })
-
 
 @app.route('/stats', methods=['GET'])
 def stats():
@@ -506,7 +529,6 @@ def stats():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
     debug = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
@@ -514,6 +536,6 @@ if __name__ == '__main__':
     print("🚀 Servidor Flask PRODUÇÃO iniciado!")
     print(f"🔗 Porta: {port}")
     print(f"🔐 Debug: {debug}")
-    print("💳 Usando Mercado Pago PRODUÇÃO")
+    print(f"💳 Mercado Pago: {'✅ Configurado' if sdk else '❌ Não configurado'}")
 
     app.run(debug=debug, host='0.0.0.0', port=port)
