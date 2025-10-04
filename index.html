@@ -358,7 +358,44 @@
                     </div>
                 </div>
                 
-                <p class="text-sm text-gray-300 mb-6">Escaneie com seu banco ou app de pagamento PIX</p>
+                <p class="text-sm text-gray-300 mb-4">Escaneie com seu banco ou app de pagamento PIX</p>
+                
+                <!-- Código PIX para copiar -->
+                <div id="pix-code-container" class="hidden mb-6">
+                    <div class="bg-gray-800 rounded-xl p-4 border border-gray-600">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm text-gray-300 font-semibold">Código PIX:</span>
+                            <button 
+                                id="copy-pix-btn" 
+                                onclick="copyPixCode()" 
+                                class="bg-primary hover:bg-primary-dark text-white text-xs px-3 py-1 rounded-lg transition-all duration-300 flex items-center space-x-1"
+                            >
+                                <span>📋</span>
+                                <span>Copiar</span>
+                            </button>
+                        </div>
+                        <div id="pix-code-text" class="bg-gray-900 rounded-lg p-3 text-xs font-mono text-gray-300 break-all border border-gray-700 max-h-20 overflow-y-auto">
+                            <!-- Código PIX será inserido aqui -->
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="flex space-x-2 mb-6">
+                    <button 
+                        id="show-qr-btn" 
+                        onclick="showPaymentMethod('qr')" 
+                        class="flex-1 bg-primary/20 text-primary border border-primary text-sm py-2 px-4 rounded-lg transition-all duration-300"
+                    >
+                        QR Code
+                    </button>
+                    <button 
+                        id="show-code-btn" 
+                        onclick="showPaymentMethod('code')" 
+                        class="flex-1 bg-gray-700 text-gray-300 border border-gray-600 text-sm py-2 px-4 rounded-lg transition-all duration-300"
+                    >
+                        Código PIX
+                    </button>
+                </div>
                 
                 <div id="payment-status" class="mb-6">
                     <div class="flex items-center justify-center space-x-2">
@@ -389,7 +426,7 @@
                         onclick="downloadAsPDF()" 
                         class="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-300 flex items-center justify-center space-x-2"
                     >
-                        <span class="text-xl">PDF</span>
+                        <span class="text-xl">📄</span>
                         <span>Baixar como PDF</span>
                     </button>
                     
@@ -397,7 +434,7 @@
                         onclick="downloadAsImage()" 
                         class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-300 flex items-center justify-center space-x-2"
                     >
-                        <span class="text-xl">IMG</span>
+                        <span class="text-xl">🖼️</span>
                         <span>Baixar como Imagem</span>
                     </button>
                     
@@ -405,7 +442,7 @@
                         onclick="shareText()" 
                         class="w-full bg-primary hover:bg-primary-dark text-white font-semibold py-3 px-6 rounded-xl transition-all duration-300 flex items-center justify-center space-x-2"
                     >
-                        <span class="text-xl">TXT</span>
+                        <span class="text-xl">📤</span>
                         <span>Compartilhar Texto</span>
                     </button>
                 </div>
@@ -579,6 +616,7 @@
         let userAnswers = [];
         let testUuid = null;
         let paymentCheckInterval = null;
+        let currentPixCode = null; // Variável para armazenar o código PIX
 
         function startQuiz() {
             // Inicializar array de respostas com 30 posições undefined
@@ -843,6 +881,9 @@
                     throw new Error('Resposta inválida do servidor');
                 }
 
+                // Armazenar código PIX para copiar
+                currentPixCode = payment.qr_code_text;
+
                 // Exibir QR Code
                 if (payment.qr_code_base64) {
                     const qrCodeElement = document.getElementById('qr-code');
@@ -861,6 +902,11 @@
                     }
                 }
 
+                // Preencher código PIX para cópia
+                if (currentPixCode) {
+                    document.getElementById('pix-code-text').textContent = currentPixCode;
+                }
+
                 updatePaymentStatus('Aguardando pagamento...', 'yellow');
 
                 // Iniciar verificação de pagamento
@@ -875,6 +921,56 @@
                     updatePaymentStatus(`Erro: ${error.message}`, 'red');
                 }
             }
+        }
+
+        function showPaymentMethod(method) {
+            const qrContainer = document.getElementById('qr-container');
+            const codeContainer = document.getElementById('pix-code-container');
+            const qrBtn = document.getElementById('show-qr-btn');
+            const codeBtn = document.getElementById('show-code-btn');
+
+            if (method === 'qr') {
+                // Mostrar QR Code
+                qrContainer.classList.remove('hidden');
+                codeContainer.classList.add('hidden');
+                
+                // Atualizar botões
+                qrBtn.className = 'flex-1 bg-primary/20 text-primary border border-primary text-sm py-2 px-4 rounded-lg transition-all duration-300';
+                codeBtn.className = 'flex-1 bg-gray-700 text-gray-300 border border-gray-600 text-sm py-2 px-4 rounded-lg transition-all duration-300';
+            } else {
+                // Mostrar código PIX
+                qrContainer.classList.add('hidden');
+                codeContainer.classList.remove('hidden');
+                
+                // Atualizar botões
+                qrBtn.className = 'flex-1 bg-gray-700 text-gray-300 border border-gray-600 text-sm py-2 px-4 rounded-lg transition-all duration-300';
+                codeBtn.className = 'flex-1 bg-primary/20 text-primary border border-primary text-sm py-2 px-4 rounded-lg transition-all duration-300';
+            }
+        }
+
+        function copyPixCode() {
+            if (!currentPixCode) {
+                showCustomAlert('Código PIX não disponível');
+                return;
+            }
+
+            navigator.clipboard.writeText(currentPixCode).then(() => {
+                const button = document.getElementById('copy-pix-btn');
+                const originalText = button.innerHTML;
+                
+                button.innerHTML = '<span>✅</span><span>Copiado!</span>';
+                button.classList.add('bg-green-600');
+                button.classList.remove('bg-primary', 'hover:bg-primary-dark');
+                
+                setTimeout(() => {
+                    button.innerHTML = originalText;
+                    button.classList.remove('bg-green-600');
+                    button.classList.add('bg-primary', 'hover:bg-primary-dark');
+                }, 2000);
+                
+            }).catch(() => {
+                showCustomAlert('Erro ao copiar código PIX');
+            });
         }
 
         function startPaymentCheck() {
@@ -1343,6 +1439,7 @@
             currentQuestion = 0;
             userAnswers = [];
             testUuid = null;
+            currentPixCode = null;
             
             if (paymentCheckInterval) {
                 clearInterval(paymentCheckInterval);
