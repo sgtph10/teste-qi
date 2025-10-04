@@ -8,7 +8,7 @@ import io
 import base64
 import mercadopago
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import threading
 import time
 from dotenv import load_dotenv
@@ -315,6 +315,13 @@ def create_payment():
 
         print(f"🔗 Base URL: {base_url}")
 
+        # CORREÇÃO: Data de expiração com timezone correto
+        expiration_date = datetime.now(timezone.utc) + timedelta(hours=2)
+        # Formato correto para o Mercado Pago: yyyy-MM-dd'T'HH:mm:ss.sssZ
+        expiration_formatted = expiration_date.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+        
+        print(f"📅 Data de expiração formatada: {expiration_formatted}")
+
         # Criar pagamento no Mercado Pago (PRODUÇÃO)
         payment_data = {
             "transaction_amount": 5.29,
@@ -327,7 +334,7 @@ def create_payment():
             },
             "external_reference": test_uuid,
             "notification_url": f"{base_url}/webhook/mercadopago",
-            "date_of_expiration": (datetime.now() + timedelta(hours=2)).isoformat(),
+            "date_of_expiration": expiration_formatted,  # ← CORRIGIDO
             "metadata": {
                 "test_uuid": test_uuid,
                 "integration": "qi_test_render"
@@ -411,6 +418,71 @@ def create_payment():
         import traceback
         traceback.print_exc()
         return jsonify({"error": f"Erro interno: {str(e)}"}), 500
+
+@app.route('/debug/payment', methods=['POST'])
+def debug_payment():
+    """Endpoint temporário para debug do Mercado Pago"""
+    try:
+        print("🔧 DEBUG: Testando configurações do Mercado Pago")
+        
+        # Verificar token
+        print(f"🔑 Token configurado: {bool(MP_ACCESS_TOKEN)}")
+        print(f"🔑 Tipo do token: {'PROD' if not MP_ACCESS_TOKEN.startswith('TEST-') else 'TEST'}")
+        print(f"🔑 Primeiros chars: {MP_ACCESS_TOKEN[:20]}...")
+        
+        # Testar conexão com MP
+        try:
+            # Teste simples - listar métodos de pagamento
+            payment_methods = sdk.payment_methods().list_all()
+            print(f"✅ Conexão com MP OK - Status: {payment_methods['status']}")
+        except Exception as mp_test_error:
+            print(f"❌ Erro na conexão com MP: {mp_test_error}")
+            return jsonify({
+                "error": "Erro na conexão com Mercado Pago",
+                "details": str(mp_test_error)
+            }), 500
+        
+        # Testar criação de pagamento simples
+        try:
+            test_payment_data = {
+                "transaction_amount": 0.01,  # 1 centavo para teste
+                "description": "Teste de conexão",
+                "payment_method_id": "pix",
+                "payer": {
+                    "email": "test@test.com"
+                }
+            }
+            
+            print(f"🧪 Testando criação de pagamento...")
+            test_response = sdk.payment().create(test_payment_data)
+            print(f"🧪 Resposta do teste: {test_response}")
+            
+            return jsonify({
+                "status": "success",
+                "token_ok": True,
+                "connection_ok": True,
+                "test_payment": test_response.get("status") == 201,
+                "test_details": test_response
+            })
+            
+        except Exception as payment_error:
+            print(f"❌ Erro no teste de pagamento: {payment_error}")
+            return jsonify({
+                "status": "partial_success", 
+                "token_ok": True,
+                "connection_ok": True,
+                "test_payment": False,
+                "payment_error": str(payment_error)
+            })
+            
+    except Exception as e:
+        print(f"❌ Erro geral no debug: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "status": "error",
+            "error": str(e)
+        }), 500
 
 @app.route('/webhook/mercadopago', methods=['POST'])
 def mercadopago_webhook():
@@ -594,7 +666,7 @@ def health():
     return jsonify({
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "version": "2.1.0-production",
+        "version": "2.2.0-production",
         "environment": os.getenv('FLASK_ENV', 'development'),
         "database": {
             "status": db_status,
