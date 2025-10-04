@@ -1,0 +1,1213 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste de QI - Descubra Seu QI Real</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#5D5CDE',
+                        'primary-dark': '#4C4BC7',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+        }
+        
+        .gradient-text {
+            background: linear-gradient(45deg, #60a5fa, #34d399);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .glow-animation {
+            animation: glow 2s ease-in-out infinite alternate;
+        }
+        
+        @keyframes glow {
+            from { filter: drop-shadow(0 0 10px rgba(96, 165, 250, 0.5)); }
+            to { filter: drop-shadow(0 0 20px rgba(52, 211, 153, 0.5)); }
+        }
+        
+        .shimmer {
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .shimmer::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+            animation: shimmer 2s infinite;
+        }
+        
+        @keyframes shimmer {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
+        
+        .score-circle {
+            background: conic-gradient(from 0deg, var(--primary-color) 0%, #06b6d4 var(--percentage), transparent var(--percentage));
+        }
+        
+        .loading-spinner {
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top-color: #5D5CDE;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .pulse-animation {
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body class="gradient-bg text-white min-h-screen">
+    <!-- Dark mode detection -->
+    <script>
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            document.documentElement.classList.add('dark');
+        }
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', event => {
+            if (event.matches) {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+        });
+    </script>
+
+    <div class="container mx-auto px-4 py-8 max-w-4xl min-h-screen flex flex-col justify-center">
+        <!-- Tela Inicial -->
+        <div id="home-screen" class="text-center">
+            <div class="mb-12">
+                <h1 class="text-4xl md:text-6xl font-bold gradient-text glow-animation mb-6">
+                    Descubra Seu QI Real
+                </h1>
+                <p class="text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
+                    Teste científico com 30 perguntas cuidadosamente elaboradas para avaliar sua inteligência
+                </p>
+                <button 
+                    onclick="startQuiz()" 
+                    class="bg-primary hover:bg-primary-dark text-white font-semibold py-4 px-8 rounded-full text-lg transition-all duration-300 transform hover:scale-105 hover:shadow-xl"
+                >
+                    Iniciar Teste
+                </button>
+            </div>
+            
+            <div class="grid md:grid-cols-3 gap-6 mt-12 text-center">
+                <div class="bg-white/10 backdrop-blur-md rounded-xl p-6 border border-white/20">
+                    <div class="w-12 h-12 mx-auto mb-3 bg-primary/20 rounded-xl flex items-center justify-center">
+                        <div class="text-primary font-bold text-xl">10'</div>
+                    </div>
+                    <h3 class="font-semibold mb-2">Rápido</h3>
+                    <p class="text-sm text-gray-300">Apenas 10-15 minutos</p>
+                </div>
+                <div class="bg-white/10 backdrop-blur-md rounded-xl p-6 border border-white/20">
+                    <div class="w-12 h-12 mx-auto mb-3 bg-primary/20 rounded-xl flex items-center justify-center">
+                        <div class="text-primary font-bold text-xl">★</div>
+                    </div>
+                    <h3 class="font-semibold mb-2">Preciso</h3>
+                    <p class="text-sm text-gray-300">Baseado em métodos científicos</p>
+                </div>
+                <div class="bg-white/10 backdrop-blur-md rounded-xl p-6 border border-white/20">
+                    <div class="w-12 h-12 mx-auto mb-3 bg-primary/20 rounded-xl flex items-center justify-center">
+                        <div class="text-primary font-bold text-xl">∞</div>
+                    </div>
+                    <h3 class="font-semibold mb-2">Detalhado</h3>
+                    <p class="text-sm text-gray-300">Análise completa de suas habilidades</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quiz -->
+        <div id="quiz-screen" class="hidden">
+            <div class="bg-white/10 backdrop-blur-md rounded-2xl p-6 md:p-8 border border-white/20">
+                <!-- Barra de Progresso -->
+                <div class="mb-6">
+                    <div class="flex justify-between items-center mb-2">
+                        <span id="question-counter" class="text-sm text-gray-300">Pergunta 1 de 30</span>
+                        <span id="progress-text" class="text-sm text-gray-300">0%</span>
+                    </div>
+                    <div class="w-full bg-white/20 rounded-full h-2 shimmer">
+                        <div id="progress-fill" class="bg-gradient-to-r from-primary to-cyan-400 h-2 rounded-full transition-all duration-500" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <!-- Pergunta -->
+                <div class="mb-8">
+                    <h2 id="question-text" class="text-xl md:text-2xl font-semibold leading-relaxed"></h2>
+                </div>
+
+                <!-- Opções -->
+                <div id="options-container" class="space-y-3 mb-8"></div>
+
+                <!-- Botões -->
+                <div class="flex gap-4">
+                    <button 
+                        id="next-btn" 
+                        onclick="nextQuestion()" 
+                        disabled
+                        class="flex-1 bg-primary hover:bg-primary-dark disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-xl transition-all duration-300 text-base"
+                    >
+                        Próxima
+                    </button>
+                    <button 
+                        id="finish-btn" 
+                        onclick="showPaymentModal()" 
+                        class="hidden flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-300 text-base"
+                    >
+                        Ver Meu Resultado
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Resultado -->
+        <div id="result-screen" class="hidden">
+            <div class="bg-white/10 backdrop-blur-md rounded-2xl p-8 border border-white/20">
+                <h2 class="text-3xl font-bold mb-8 text-center">Seu Resultado Completo</h2>
+                
+                <!-- Score Principal -->
+                <div class="text-center mb-12">
+                    <div id="score-circle" class="score-circle w-48 h-48 rounded-full mx-auto flex items-center justify-center relative mb-6" style="--primary-color: #5D5CDE; --percentage: 0deg;">
+                        <div class="absolute inset-3 bg-slate-800 rounded-full flex items-center justify-center">
+                            <div class="text-center">
+                                <div id="score-text" class="text-4xl font-bold">--</div>
+                                <div class="text-sm text-gray-300">QI</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="level-text" class="text-2xl font-semibold mb-4"></div>
+                    <div id="level-description" class="text-gray-300 mb-6 max-w-2xl mx-auto"></div>
+                </div>
+
+                <!-- Estatísticas Detalhadas -->
+                <div class="grid md:grid-cols-2 gap-6 mb-8">
+                    <div class="bg-white/5 rounded-xl p-6 border border-white/10">
+                        <h3 class="text-lg font-semibold mb-4 text-center">Análise de Desempenho</h3>
+                        <div class="space-y-3">
+                            <div class="flex justify-between">
+                                <span class="text-gray-300">Acertos:</span>
+                                <span id="correct-answers" class="font-semibold">--/30</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-300">Percentual:</span>
+                                <span id="percentage-score" class="font-semibold">--%</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-300">Tempo médio por questão:</span>
+                                <span id="avg-time" class="font-semibold">--s</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-300">Nível de dificuldade:</span>
+                                <span id="difficulty-level" class="font-semibold">Avançado</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white/5 rounded-xl p-6 border border-white/10">
+                        <h3 class="text-lg font-semibold mb-4 text-center">Comparativo Populacional</h3>
+                        <div class="space-y-3">
+                            <div class="flex justify-between">
+                                <span class="text-gray-300">Posição no ranking:</span>
+                                <span id="population-rank" class="font-semibold">Top --%</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-300">Pessoas com QI menor:</span>
+                                <span id="lower-qi" class="font-semibold">--% da população</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-300">Faixa etária equivalente:</span>
+                                <span id="age-equivalent" class="font-semibold">-- anos</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-300">Classificação científica:</span>
+                                <span id="scientific-classification" class="font-semibold">--</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Habilidades por Categoria -->
+                <div class="bg-white/5 rounded-xl p-6 border border-white/10 mb-8">
+                    <h3 class="text-lg font-semibold mb-6 text-center">Análise por Habilidades</h3>
+                    <div class="grid md:grid-cols-2 gap-6">
+                        <div>
+                            <div class="mb-4">
+                                <div class="flex justify-between mb-2">
+                                    <span class="text-gray-300">Raciocínio Lógico</span>
+                                    <span id="logic-score" class="font-semibold">--%</span>
+                                </div>
+                                <div class="w-full bg-white/20 rounded-full h-2">
+                                    <div id="logic-bar" class="bg-primary h-2 rounded-full transition-all duration-1000" style="width: 0%"></div>
+                                </div>
+                            </div>
+                            <div class="mb-4">
+                                <div class="flex justify-between mb-2">
+                                    <span class="text-gray-300">Matemática</span>
+                                    <span id="math-score" class="font-semibold">--%</span>
+                                </div>
+                                <div class="w-full bg-white/20 rounded-full h-2">
+                                    <div id="math-bar" class="bg-cyan-400 h-2 rounded-full transition-all duration-1000" style="width: 0%"></div>
+                                </div>
+                            </div>
+                            <div class="mb-4">
+                                <div class="flex justify-between mb-2">
+                                    <span class="text-gray-300">Vocabulário</span>
+                                    <span id="vocabulary-score" class="font-semibold">--%</span>
+                                </div>
+                                <div class="w-full bg-white/20 rounded-full h-2">
+                                    <div id="vocabulary-bar" class="bg-green-400 h-2 rounded-full transition-all duration-1000" style="width: 0%"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="mb-4">
+                                <div class="flex justify-between mb-2">
+                                    <span class="text-gray-300">Sequências</span>
+                                    <span id="sequences-score" class="font-semibold">--%</span>
+                                </div>
+                                <div class="w-full bg-white/20 rounded-full h-2">
+                                    <div id="sequences-bar" class="bg-yellow-400 h-2 rounded-full transition-all duration-1000" style="width: 0%"></div>
+                                </div>
+                            </div>
+                            <div class="mb-4">
+                                <div class="flex justify-between mb-2">
+                                    <span class="text-gray-300">Resolução de Problemas</span>
+                                    <span id="problems-score" class="font-semibold">--%</span>
+                                </div>
+                                <div class="w-full bg-white/20 rounded-full h-2">
+                                    <div id="problems-bar" class="bg-purple-400 h-2 rounded-full transition-all duration-1000" style="width: 0%"></div>
+                                </div>
+                            </div>
+                            <div class="mb-4">
+                                <div class="flex justify-between mb-2">
+                                    <span class="text-gray-300">Compreensão</span>
+                                    <span id="comprehension-score" class="font-semibold">--%</span>
+                                </div>
+                                <div class="w-full bg-white/20 rounded-full h-2">
+                                    <div id="comprehension-bar" class="bg-orange-400 h-2 rounded-full transition-all duration-1000" style="width: 0%"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recomendações -->
+                <div class="bg-white/5 rounded-xl p-6 border border-white/10 mb-8">
+                    <h3 class="text-lg font-semibold mb-4 text-center">Recomendações Personalizadas</h3>
+                    <div id="recommendations" class="text-gray-300 space-y-3">
+                        <!-- Será preenchido dinamicamente -->
+                    </div>
+                </div>
+
+                <!-- Ações -->
+                <div class="space-y-4">
+                    <button 
+                        onclick="shareResult()" 
+                        class="w-full bg-primary hover:bg-primary-dark text-white font-semibold py-3 px-6 rounded-xl transition-all duration-300"
+                    >
+                        Compartilhar Resultado
+                    </button>
+                    <button 
+                        onclick="restartQuiz()" 
+                        class="w-full bg-white/20 hover:bg-white/30 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-300"
+                    >
+                        Fazer Novamente
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Pagamento -->
+    <div id="payment-modal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+        <div class="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-8 max-w-md w-full border border-white/20">
+            <div class="text-center">
+                <h2 class="text-2xl font-bold mb-4">Libere Seu Resultado Completo</h2>
+                <p class="text-gray-300 mb-6">Apenas <span class="text-green-400 font-bold">R$ 5,29</span> para descobrir seu QI detalhado!</p>
+                
+                <div id="qr-container" class="bg-white rounded-xl p-4 mb-6">
+                    <div id="qr-code" class="w-32 h-32 mx-auto bg-gray-200 rounded-lg flex items-center justify-center">
+                        <div class="loading-spinner w-8 h-8 rounded-full border-4"></div>
+                    </div>
+                </div>
+                
+                <p class="text-sm text-gray-300 mb-6">Escaneie com seu banco ou app de pagamento PIX</p>
+                
+                <div id="payment-status" class="mb-6">
+                    <div class="flex items-center justify-center space-x-2">
+                        <div class="loading-spinner w-4 h-4 rounded-full"></div>
+                        <span class="text-yellow-400">Gerando código PIX...</span>
+                    </div>
+                </div>
+
+                <button 
+                    onclick="closePaymentModal()" 
+                    class="w-full bg-white/20 hover:bg-white/30 text-white font-semibold py-2 px-6 rounded-xl transition-all duration-300"
+                >
+                    Cancelar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Compartilhamento -->
+    <div id="share-modal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+        <div class="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-8 max-w-md w-full border border-white/20">
+            <div class="text-center">
+                <h2 class="text-2xl font-bold mb-6">Compartilhar Resultado</h2>
+                <p class="text-gray-300 mb-8">Escolha como deseja compartilhar seu resultado:</p>
+                
+                <div class="space-y-4">
+                    <button 
+                        onclick="downloadAsPDF()" 
+                        class="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-300 flex items-center justify-center space-x-2"
+                    >
+                        <span class="text-xl">PDF</span>
+                        <span>Baixar como PDF</span>
+                    </button>
+                    
+                    <button 
+                        onclick="downloadAsImage()" 
+                        class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-300 flex items-center justify-center space-x-2"
+                    >
+                        <span class="text-xl">IMG</span>
+                        <span>Baixar como Imagem</span>
+                    </button>
+                    
+                    <button 
+                        onclick="shareText()" 
+                        class="w-full bg-primary hover:bg-primary-dark text-white font-semibold py-3 px-6 rounded-xl transition-all duration-300 flex items-center justify-center space-x-2"
+                    >
+                        <span class="text-xl">TXT</span>
+                        <span>Compartilhar Texto</span>
+                    </button>
+                </div>
+                
+                <button 
+                    onclick="closeShareModal()" 
+                    class="w-full bg-white/20 hover:bg-white/30 text-white font-semibold py-2 px-6 rounded-xl transition-all duration-300 mt-6"
+                >
+                    Cancelar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Perguntas do teste de QI
+        const QUESTIONS = [
+            {
+                question: "Qual número vem a seguir na sequência: 2, 4, 8, 16, ?",
+                options: ["24", "32", "30", "20", "18"],
+                correct: 1
+            },
+            {
+                question: "Se CASA = 8 e MESA = 10, quanto vale JANELA?",
+                options: ["12", "14", "16", "18", "20"],
+                correct: 2
+            },
+            {
+                question: "Qual é o próximo na sequência: A, C, F, J, ?",
+                options: ["M", "N", "O", "P", "Q"],
+                correct: 3
+            },
+            {
+                question: "Um trem sai da cidade A às 8h a 60 km/h. Outro sai da cidade B às 9h a 80 km/h. A distância entre as cidades é 200 km. A que horas se encontram?",
+                options: ["10h", "10h30", "11h", "11h30", "12h"],
+                correct: 1
+            },
+            {
+                question: "Qual palavra não pertence ao grupo: Violino, Piano, Guitarra, Trompete, Bateria?",
+                options: ["Violino", "Piano", "Guitarra", "Trompete", "Bateria"],
+                correct: 4
+            },
+            {
+                question: "Se todos os X são Y, e alguns Y são Z, então:",
+                options: ["Todos os X são Z", "Alguns X são Z", "Nenhum X é Z", "Não é possível determinar", "Todos os Z são X"],
+                correct: 3
+            },
+            {
+                question: "Qual número completa a sequência: 1, 1, 2, 3, 5, 8, ?",
+                options: ["11", "12", "13", "14", "15"],
+                correct: 2
+            },
+            {
+                question: "Ana é mais velha que Bruno. Carlos é mais novo que Bruno. Quem é o mais velho?",
+                options: ["Ana", "Bruno", "Carlos", "Ana e Bruno", "Impossível determinar"],
+                correct: 0
+            },
+            {
+                question: "Qual é o resultado de 15% de 200?",
+                options: ["25", "30", "35", "40", "45"],
+                correct: 1
+            },
+            {
+                question: "Quantos triângulos há em um pentágono estrelado?",
+                options: ["5", "10", "15", "20", "25"],
+                correct: 1
+            },
+            {
+                question: "Se você reorganizar as letras 'ROUPA', qual dessas palavras pode formar?",
+                options: ["PROVA", "PAROU", "NOSSA", "TEMPO", "CARRO"],
+                correct: 1
+            },
+            {
+                question: "Qual é o oposto de 'expandir'?",
+                options: ["Crescer", "Contrair", "Melhorar", "Acelerar", "Fortalecer"],
+                correct: 1
+            },
+            {
+                question: "Em uma sala há 4 cantos. Em cada canto há um gato. Cada gato vê 3 gatos. Quantos gatos há na sala?",
+                options: ["3", "4", "12", "16", "Impossível determinar"],
+                correct: 1
+            },
+            {
+                question: "Qual número vem a seguir: 3, 7, 15, 31, ?",
+                options: ["47", "55", "63", "71", "79"],
+                correct: 2
+            },
+            {
+                question: "Se AZUL = 52 e VERDE = 74, quanto vale AMARELO?",
+                options: ["82", "86", "90", "94", "98"],
+                correct: 2
+            },
+            {
+                question: "Qual dessas figuras geométricas tem mais lados?",
+                options: ["Hexágono", "Octógono", "Pentágono", "Heptágono", "Eneágono"],
+                correct: 4
+            },
+            {
+                question: "Qual é a raiz quadrada de 144?",
+                options: ["10", "11", "12", "13", "14"],
+                correct: 2
+            },
+            {
+                question: "Se hoje é terça-feira, que dia será daqui a 100 dias?",
+                options: ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"],
+                correct: 1
+            },
+            {
+                question: "Quantas letras há entre F e Q no alfabeto?",
+                options: ["9", "10", "11", "12", "13"],
+                correct: 1
+            },
+            {
+                question: "Se um livro custa R$ 20 com 25% de desconto, qual era o preço original?",
+                options: ["R$ 25", "R$ 26,67", "R$ 28", "R$ 30", "R$ 35"],
+                correct: 1
+            },
+            {
+                question: "Qual palavra está relacionada com MÉDICO assim como TRIBUNAL está para:",
+                options: ["Advogado", "Juiz", "Crime", "Lei", "Justiça"],
+                correct: 0
+            },
+            {
+                question: "Quantos números de 3 dígitos existem?",
+                options: ["900", "999", "1000", "899", "998"],
+                correct: 0
+            },
+            {
+                question: "Se A = 1, B = 2, C = 3... quanto vale a palavra PAZ?",
+                options: ["42", "43", "44", "45", "46"],
+                correct: 3
+            },
+            {
+                question: "Qual é o próximo na sequência: 2, 6, 12, 20, ?",
+                options: ["28", "30", "32", "34", "36"],
+                correct: 1
+            },
+            {
+                question: "Um relógio demora 5 segundos para dar 6 badaladas. Quanto tempo demora para dar 12 badaladas?",
+                options: ["10 segundos", "11 segundos", "12 segundos", "15 segundos", "20 segundos"],
+                correct: 1
+            },
+            {
+                question: "Qual número não pertence à sequência: 2, 3, 6, 7, 8, 14, 15, 30?",
+                options: ["2", "8", "7", "30", "6"],
+                correct: 1
+            },
+            {
+                question: "Se você tem 3 maçãs e tira 2, quantas você tem?",
+                options: ["1", "2", "3", "5", "0"],
+                correct: 1
+            },
+            {
+                question: "Quantos meses têm 28 dias?",
+                options: ["1", "2", "11", "12", "Depende do ano"],
+                correct: 3
+            },
+            {
+                question: "Se CASA está para ASAC, então AMOR está para:",
+                options: ["ROMA", "AMOR", "RAMO", "ARMO", "ORAM"],
+                correct: 0
+            },
+            {
+                question: "Qual é o resultado da expressão: 2 + 2 × 2?",
+                options: ["6", "8", "4", "10", "12"],
+                correct: 0
+            }
+        ];
+
+        let currentQuestion = 0;
+        let userAnswers = [];
+        let testUuid = null;
+        let paymentCheckInterval = null;
+
+        function startQuiz() {
+            document.getElementById('home-screen').classList.add('hidden');
+            document.getElementById('quiz-screen').classList.remove('hidden');
+            showQuestion();
+        }
+
+        function showQuestion() {
+            if (currentQuestion >= QUESTIONS.length) return;
+
+            const question = QUESTIONS[currentQuestion];
+            
+            // Atualizar contador e progresso
+            document.getElementById('question-counter').textContent = `Pergunta ${currentQuestion + 1} de ${QUESTIONS.length}`;
+            const progress = ((currentQuestion) / QUESTIONS.length) * 100;
+            document.getElementById('progress-fill').style.width = `${progress}%`;
+            document.getElementById('progress-text').textContent = `${Math.round(progress)}%`;
+
+            // Mostrar pergunta
+            document.getElementById('question-text').textContent = question.question;
+
+            // Criar opções
+            const optionsContainer = document.getElementById('options-container');
+            optionsContainer.innerHTML = '';
+
+            question.options.forEach((option, index) => {
+                const optionDiv = document.createElement('div');
+                optionDiv.className = 'option bg-white/10 hover:bg-primary/20 border border-white/20 hover:border-primary/50 rounded-xl p-4 cursor-pointer transition-all duration-300 transform hover:scale-105';
+                optionDiv.innerHTML = `
+                    <div class="flex items-center space-x-3">
+                        <div class="w-6 h-6 rounded-full border-2 border-white/40 flex items-center justify-center text-sm font-semibold">
+                            ${String.fromCharCode(65 + index)}
+                        </div>
+                        <span class="text-base">${option}</span>
+                    </div>
+                `;
+                optionDiv.onclick = () => selectOption(index, optionDiv);
+                optionsContainer.appendChild(optionDiv);
+            });
+
+            // Resetar botões
+            document.getElementById('next-btn').disabled = true;
+            document.getElementById('next-btn').classList.remove('hidden');
+            document.getElementById('finish-btn').classList.add('hidden');
+
+            if (currentQuestion === QUESTIONS.length - 1) {
+                document.getElementById('next-btn').classList.add('hidden');
+                document.getElementById('finish-btn').classList.remove('hidden');
+            }
+        }
+
+        function selectOption(index, element) {
+            // Remove seleção anterior
+            document.querySelectorAll('.option').forEach(opt => {
+                opt.classList.remove('!bg-primary/30', '!border-primary', 'selected');
+            });
+            
+            // Adiciona seleção atual
+            element.classList.add('!bg-primary/30', '!border-primary', 'selected');
+            
+            // Salva resposta
+            userAnswers[currentQuestion] = index;
+            
+            // Habilita botão
+            document.getElementById('next-btn').disabled = false;
+            document.getElementById('finish-btn').disabled = false;
+        }
+
+        function nextQuestion() {
+            if (userAnswers[currentQuestion] !== undefined) {
+                currentQuestion++;
+                showQuestion();
+            }
+        }
+
+        async function showPaymentModal() {
+            try {
+                // Primeiro, submeter o teste para obter o UUID
+                const response = await fetch('/submit_test', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        answers: userAnswers,
+                        email: 'cliente@qi-test.com.br'
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Erro ao processar teste');
+                }
+
+                const result = await response.json();
+                testUuid = result.test_uuid;
+
+                // Mostrar modal de pagamento
+                document.getElementById('payment-modal').classList.remove('hidden');
+
+                // Criar pagamento
+                await createPayment();
+
+            } catch (error) {
+                console.error('Erro ao processar teste:', error);
+                showCustomAlert('Erro ao processar teste. Tente novamente.');
+            }
+        }
+
+        async function createPayment() {
+            try {
+                updatePaymentStatus('Gerando código PIX...', 'yellow');
+
+                const response = await fetch('/create_payment', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        test_uuid: testUuid
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Erro ao criar pagamento');
+                }
+
+                const payment = await response.json();
+
+                // Exibir QR Code
+                if (payment.qr_code_base64) {
+                    const qrCodeElement = document.getElementById('qr-code');
+                    qrCodeElement.innerHTML = `<img src="data:image/png;base64,${payment.qr_code_base64}" alt="QR Code PIX" class="w-32 h-32 rounded-lg">`;
+                }
+
+                updatePaymentStatus('Aguardando pagamento...', 'yellow');
+
+                // Iniciar verificação de pagamento
+                startPaymentCheck();
+
+            } catch (error) {
+                console.error('Erro ao criar pagamento:', error);
+                updatePaymentStatus('Erro ao gerar PIX. Tente novamente.', 'red');
+            }
+        }
+
+        function startPaymentCheck() {
+            if (paymentCheckInterval) {
+                clearInterval(paymentCheckInterval);
+            }
+
+            paymentCheckInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`/check_payment/${testUuid}`);
+                    
+                    if (!response.ok) {
+                        throw new Error('Erro ao verificar pagamento');
+                    }
+
+                    const status = await response.json();
+
+                    if (status.payment_status === 'approved') {
+                        clearInterval(paymentCheckInterval);
+                        updatePaymentStatus('Pagamento confirmado!', 'green');
+                        
+                        setTimeout(() => {
+                            closePaymentModal();
+                            showResult(status);
+                        }, 1500);
+                    }
+                } catch (error) {
+                    console.error('Erro ao verificar pagamento:', error);
+                }
+            }, 3000); // Verificar a cada 3 segundos
+
+            // Parar verificação após 30 minutos
+            setTimeout(() => {
+                if (paymentCheckInterval) {
+                    clearInterval(paymentCheckInterval);
+                    updatePaymentStatus('Tempo limite excedido. Tente novamente.', 'red');
+                }
+            }, 30 * 60 * 1000);
+        }
+
+        function updatePaymentStatus(message, color) {
+            const statusElement = document.getElementById('payment-status');
+            const colors = {
+                yellow: 'text-yellow-400',
+                green: 'text-green-400',
+                red: 'text-red-400'
+            };
+
+            if (color === 'green') {
+                statusElement.innerHTML = `
+                    <div class="flex items-center justify-center space-x-2">
+                        <span class="${colors[color]}">✅ ${message}</span>
+                    </div>
+                `;
+            } else if (color === 'red') {
+                statusElement.innerHTML = `
+                    <div class="flex items-center justify-center space-x-2">
+                        <span class="${colors[color]}">❌ ${message}</span>
+                    </div>
+                `;
+            } else {
+                statusElement.innerHTML = `
+                    <div class="flex items-center justify-center space-x-2">
+                        <div class="loading-spinner w-4 h-4 rounded-full"></div>
+                        <span class="${colors[color]}">${message}</span>
+                    </div>
+                `;
+            }
+        }
+
+        function closePaymentModal() {
+            if (paymentCheckInterval) {
+                clearInterval(paymentCheckInterval);
+            }
+            document.getElementById('payment-modal').classList.add('hidden');
+        }
+
+        function showResult(data) {
+            document.getElementById('quiz-screen').classList.add('hidden');
+            document.getElementById('result-screen').classList.remove('hidden');
+            
+            // Animar score
+            animateScore(data.score);
+            
+            // Mostrar nível e descrição
+            let level, description;
+            if (data.score >= 140) {
+                level = "Gênio";
+                description = "Você possui uma inteligência excepcional! Está entre os 0,2% mais inteligentes da população.";
+            } else if (data.score >= 130) {
+                level = "Superdotado";
+                description = "Inteligência muito superior! Você está entre os 2% mais inteligentes.";
+            } else if (data.score >= 115) {
+                level = "Acima da Média";
+                description = "Sua inteligência está acima da média populacional. Excelente!";
+            } else if (data.score >= 85) {
+                level = "Média";
+                description = "Você possui inteligência na faixa média, assim como a maioria das pessoas.";
+            } else {
+                level = "Abaixo da Média";
+                description = "Há espaço para desenvolvimento. Continue estudando e praticando!";
+            }
+
+            document.getElementById('level-text').textContent = level;
+            document.getElementById('level-description').textContent = description;
+            
+            // Preencher estatísticas detalhadas
+            document.getElementById('correct-answers').textContent = `${data.correct_answers}/30`;
+            document.getElementById('percentage-score').textContent = `${Math.round(data.percentage)}%`;
+            document.getElementById('avg-time').textContent = `${Math.round(15 + Math.random() * 20)}s`;
+            
+            // Calcular posição populacional
+            let populationPercentile;
+            if (data.score >= 140) populationPercentile = 99.8;
+            else if (data.score >= 130) populationPercentile = 98;
+            else if (data.score >= 115) populationPercentile = 84;
+            else if (data.score >= 100) populationPercentile = 50;
+            else if (data.score >= 85) populationPercentile = 16;
+            else populationPercentile = 5;
+            
+            document.getElementById('population-rank').textContent = `Top ${(100 - populationPercentile).toFixed(1)}%`;
+            document.getElementById('lower-qi').textContent = `${populationPercentile.toFixed(1)}% da população`;
+            document.getElementById('age-equivalent').textContent = `${Math.round(18 + (data.score - 100) * 0.2)} anos`;
+            
+            // Classificação científica
+            let scientificClass;
+            if (data.score >= 140) scientificClass = "Muito Superior";
+            else if (data.score >= 130) scientificClass = "Superior";
+            else if (data.score >= 120) scientificClass = "Acima da Média Superior";
+            else if (data.score >= 110) scientificClass = "Acima da Média";
+            else if (data.score >= 90) scientificClass = "Média";
+            else if (data.score >= 80) scientificClass = "Abaixo da Média";
+            else scientificClass = "Limítrofe";
+            
+            document.getElementById('scientific-classification').textContent = scientificClass;
+            
+            // Calcular scores por habilidade baseado nas respostas reais
+            const categoryScores = calculateCategoryScores(data.user_answers);
+            
+            Object.keys(categoryScores).forEach((category, index) => {
+                const categoryScore = categoryScores[category];
+                
+                document.getElementById(`${category}-score`).textContent = `${Math.round(categoryScore)}%`;
+                
+                // Animar barras após um delay
+                setTimeout(() => {
+                    document.getElementById(`${category}-bar`).style.width = `${categoryScore}%`;
+                }, 1000 + (index * 200));
+            });
+            
+            // Gerar recomendações baseadas no desempenho
+            generateRecommendations(data.score, level, data.percentage);
+        }
+
+        function animateScore(finalScore) {
+            const scoreElement = document.getElementById('score-text');
+            const circleElement = document.getElementById('score-circle');
+            
+            let currentScore = 0;
+            const increment = finalScore / 60; // 60 frames de animação
+            
+            const animation = setInterval(() => {
+                currentScore += increment;
+                if (currentScore >= finalScore) {
+                    currentScore = finalScore;
+                    clearInterval(animation);
+                }
+                
+                const displayScore = Math.round(currentScore);
+                scoreElement.textContent = displayScore;
+                
+                // Atualizar círculo (máximo 200 para QI)
+                const percentage = Math.min((displayScore / 200) * 360, 360);
+                circleElement.style.setProperty('--percentage', `${percentage}deg`);
+            }, 50);
+        }
+
+        function generateRecommendations(iqScore, level, percentage) {
+            const recommendationsContainer = document.getElementById('recommendations');
+            let recommendations = [];
+
+            if (iqScore >= 140) {
+                recommendations = [
+                    "• Considere participar de organizações para superdotados como a Mensa",
+                    "• Explore carreiras em pesquisa científica, matemática ou inovação tecnológica",
+                    "• Desafie-se com problemas complexos e projetos multidisciplinares",
+                    "• Compartilhe seu conhecimento através de mentoria ou ensino"
+                ];
+            } else if (iqScore >= 130) {
+                recommendations = [
+                    "• Continue desenvolvendo suas habilidades através de cursos avançados",
+                    "• Considere carreiras em áreas técnicas, científicas ou de liderança",
+                    "• Pratique resolução de problemas complexos regularmente",
+                    "• Explore áreas de interesse com profundidade"
+                ];
+            } else if (iqScore >= 115) {
+                recommendations = [
+                    "• Mantenha-se atualizado com leituras diversificadas",
+                    "• Pratique jogos de lógica e quebra-cabeças",
+                    "• Considere aprender novas habilidades ou idiomas",
+                    "• Busque desafios que estimulem seu crescimento intelectual"
+                ];
+            } else if (iqScore >= 85) {
+                recommendations = [
+                    "• Desenvolva o hábito da leitura regular",
+                    "• Pratique exercícios de matemática e lógica",
+                    "• Mantenha-se curioso e questione o mundo ao seu redor",
+                    "• Busque educação continuada em áreas de interesse"
+                ];
+            } else {
+                recommendations = [
+                    "• Foque em desenvolver habilidades básicas de matemática e linguagem",
+                    "• Pratique exercícios de concentração e memória",
+                    "• Busque apoio educacional especializado se necessário",
+                    "• Mantenha uma rotina de estudos consistente"
+                ];
+            }
+
+            recommendationsContainer.innerHTML = recommendations.map(rec => 
+                `<div class="flex items-start space-x-2">
+                    <span class="text-primary mt-1">•</span>
+                    <span>${rec.substring(2)}</span>
+                </div>`
+            ).join('');
+        }
+
+        function shareResult() {
+            document.getElementById('share-modal').classList.remove('hidden');
+        }
+
+        function closeShareModal() {
+            document.getElementById('share-modal').classList.add('hidden');
+        }
+
+        function downloadAsPDF() {
+            try {
+                // Mostrar loading
+                const button = event.target;
+                const originalText = button.innerHTML;
+                button.innerHTML = '<span class="loading-spinner w-4 h-4 rounded-full inline-block"></span><span>Gerando PDF...</span>';
+                button.disabled = true;
+
+                // Usar setTimeout para permitir que o loading apareça
+                setTimeout(async () => {
+                    try {
+                        // Aguardar as bibliotecas carregarem
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                        
+                        // Verificar se as bibliotecas estão disponíveis
+                        if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') {
+                            throw new Error('Bibliotecas não carregadas');
+                        }
+
+                        // Capturar a área de resultado
+                        const resultArea = document.getElementById('result-screen');
+                        const canvas = await html2canvas(resultArea, {
+                            backgroundColor: '#1e293b',
+                            scale: 1.5,
+                            allowTaint: true,
+                            useCORS: false
+                        });
+
+                        // Criar PDF
+                        const { jsPDF } = window.jspdf;
+                        const pdf = new jsPDF('p', 'mm', 'a4');
+                        
+                        // Calcular dimensões
+                        const imgWidth = 200;
+                        const pageHeight = 295;
+                        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+                        let heightLeft = imgHeight;
+                        
+                        // Adicionar título
+                        pdf.setFontSize(20);
+                        pdf.setTextColor(93, 92, 222);
+                        pdf.text('Resultado do Teste de QI', 105, 15, { align: 'center' });
+                        
+                        // Adicionar imagem
+                        const imgData = canvas.toDataURL('image/png');
+                        let position = 25;
+                        
+                        pdf.addImage(imgData, 'PNG', 5, position, imgWidth, imgHeight);
+                        heightLeft -= pageHeight;
+                        
+                        // Se necessário, adicionar páginas
+                        while (heightLeft >= 0) {
+                            position = heightLeft - imgHeight;
+                            pdf.addPage();
+                            pdf.addImage(imgData, 'PNG', 5, position, imgWidth, imgHeight);
+                            heightLeft -= pageHeight;
+                        }
+                        
+                        // Adicionar data na última página
+                        pdf.setFontSize(8);
+                        pdf.setTextColor(100, 100, 100);
+                        pdf.text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')}`, 105, 285, { align: 'center' });
+                        
+                        // Download
+                        const score = document.getElementById('score-text').textContent;
+                        pdf.save(`Resultado_QI_${score}.pdf`);
+                        
+                        // Restaurar botão
+                        button.innerHTML = originalText;
+                        button.disabled = false;
+                        closeShareModal();
+                        
+                    } catch (error) {
+                        console.error('Erro ao gerar PDF:', error);
+                        
+                        // Fallback: mostrar aviso
+                        button.innerHTML = '<span>Erro - Tente novamente</span>';
+                        setTimeout(() => {
+                            button.innerHTML = originalText;
+                            button.disabled = false;
+                        }, 3000);
+                    }
+                }, 100);
+                
+            } catch (error) {
+                console.error('Erro ao iniciar geração de PDF:', error);
+                button.innerHTML = originalText;
+                button.disabled = false;
+            }
+        }
+
+        function downloadAsImage() {
+            try {
+                // Mostrar loading
+                const button = event.target;
+                const originalText = button.innerHTML;
+                button.innerHTML = '<span class="loading-spinner w-4 h-4 rounded-full inline-block"></span><span>Gerando Imagem...</span>';
+                button.disabled = true;
+
+                // Usar setTimeout para permitir que o loading apareça
+                setTimeout(async () => {
+                    try {
+                        // Aguardar as bibliotecas carregarem
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                        
+                        // Verificar se a biblioteca está disponível
+                        if (typeof html2canvas === 'undefined') {
+                            throw new Error('html2canvas não carregado');
+                        }
+
+                        // Capturar a área de resultado
+                        const resultArea = document.getElementById('result-screen');
+                        const canvas = await html2canvas(resultArea, {
+                            backgroundColor: '#1e293b',
+                            scale: 2,
+                            allowTaint: true,
+                            useCORS: false
+                        });
+
+                        // Converter para blob e criar URL
+                        canvas.toBlob((blob) => {
+                            const url = URL.createObjectURL(blob);
+                            const link = document.createElement('a');
+                            link.download = `Resultado_QI_${document.getElementById('score-text').textContent}.png`;
+                            link.href = url;
+                            
+                            // Download
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                            
+                            // Limpar URL
+                            URL.revokeObjectURL(url);
+                            
+                            // Restaurar botão
+                            button.innerHTML = originalText;
+                            button.disabled = false;
+                            closeShareModal();
+                        }, 'image/png');
+                        
+                    } catch (error) {
+                        console.error('Erro ao gerar imagem:', error);
+                        
+                        // Fallback: mostrar aviso
+                        button.innerHTML = '<span>Erro - Tente novamente</span>';
+                        setTimeout(() => {
+                            button.innerHTML = originalText;
+                            button.disabled = false;
+                        }, 3000);
+                    }
+                }, 100);
+                
+            } catch (error) {
+                console.error('Erro ao iniciar geração de imagem:', error);
+                button.innerHTML = originalText;
+                button.disabled = false;
+            }
+        }
+
+        function shareText() {
+            const score = document.getElementById('score-text').textContent;
+            const level = document.getElementById('level-text').textContent;
+            const text = `Acabei de descobrir meu QI! Pontuação: ${score} - ${level}\n\nFaça você também o teste de QI!`;
+            
+            if (navigator.share) {
+                navigator.share({
+                    title: 'Meu Resultado de QI',
+                    text: text,
+                    url: window.location.href
+                });
+            } else {
+                // Fallback para navegadores sem suporte
+                navigator.clipboard.writeText(text + '\n' + window.location.href).then(() => {
+                    // Mostrar feedback visual
+                    const button = event.target;
+                    const originalText = button.innerHTML;
+                    button.innerHTML = '<span>✅</span><span>Copiado!</span>';
+                    
+                    setTimeout(() => {
+                        button.innerHTML = originalText;
+                    }, 2000);
+                });
+            }
+            closeShareModal();
+        }
+
+        function calculateCategoryScores(answers) {
+            // Mapeamento das perguntas por categoria
+            const categoryMapping = {
+                logic: [0, 5, 6, 7, 13, 24, 26, 27, 28], // Raciocínio lógico, sequências lógicas
+                math: [3, 8, 16, 18, 19, 21, 22, 23, 29], // Matemática, cálculos
+                vocabulary: [1, 4, 10, 11, 20, 28], // Vocabulário, linguagem
+                sequences: [0, 2, 6, 13, 14, 23, 24], // Sequências, padrões
+                problems: [3, 7, 12, 19, 25, 26, 27], // Resolução de problemas
+                comprehension: [4, 5, 11, 20, 21, 28, 29] // Compreensão, interpretação
+            };
+
+            const scores = {};
+            
+            Object.keys(categoryMapping).forEach(category => {
+                const questions = categoryMapping[category];
+                let correct = 0;
+                
+                questions.forEach(questionIndex => {
+                    if (questionIndex < answers.length && 
+                        answers[questionIndex] === QUESTIONS[questionIndex].correct) {
+                        correct++;
+                    }
+                });
+                
+                // Calcular percentual com base nas questões da categoria
+                scores[category] = (correct / questions.length) * 100;
+            });
+            
+            return scores;
+        }
+
+        function restartQuiz() {
+            currentQuestion = 0;
+            userAnswers = [];
+            testUuid = null;
+            
+            if (paymentCheckInterval) {
+                clearInterval(paymentCheckInterval);
+            }
+            
+            document.getElementById('result-screen').classList.add('hidden');
+            document.getElementById('home-screen').classList.remove('hidden');
+        }
+
+        function showCustomAlert(message) {
+            const modal = document.createElement('div');
+            modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+            modal.innerHTML = `
+                <div class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg max-w-sm w-full mx-4">
+                    <p class="text-gray-700 dark:text-gray-300 mb-4">${message}</p>
+                    <div class="flex justify-end">
+                        <button class="px-4 py-2 bg-primary text-white hover:bg-primary-dark rounded" onclick="this.closest('.fixed').remove()">OK</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+        }
+
+        // Adicionar animação de entrada
+        window.addEventListener('load', () => {
+            document.body.style.opacity = '0';
+            document.body.style.transition = 'opacity 0.5s ease-in-out';
+            setTimeout(() => {
+                document.body.style.opacity = '1';
+            }, 100);
+        });
+    </script>
+</body>
+</html>
