@@ -780,34 +780,68 @@
 
                 console.log('💳 Criando pagamento para teste UUID:', testUuid);
 
+                const requestData = {
+                    test_uuid: testUuid
+                };
+
+                console.log('💳 Dados da requisição:', requestData);
+
                 const response = await fetch('/create_payment', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'Accept': 'application/json'
                     },
-                    body: JSON.stringify({
-                        test_uuid: testUuid
-                    })
+                    body: JSON.stringify(requestData)
                 });
 
                 console.log('💳 Payment response status:', response.status);
+                console.log('💳 Payment response headers:', Object.fromEntries(response.headers.entries()));
 
                 const responseText = await response.text();
-                console.log('💳 Payment response:', responseText);
+                console.log('💳 Payment response text:', responseText);
 
                 if (!response.ok) {
                     let errorMessage = 'Erro ao criar pagamento';
+                    let errorDetails = '';
+                    
                     try {
                         const errorData = JSON.parse(responseText);
                         errorMessage = errorData.error || errorMessage;
-                    } catch (e) {
+                        errorDetails = errorData.details ? JSON.stringify(errorData.details) : '';
+                        
+                        console.error('❌ Erro detalhado do servidor:', errorData);
+                        
+                        // Se for erro do Mercado Pago, mostrar detalhes
+                        if (errorData.details) {
+                            console.error('❌ Detalhes do Mercado Pago:', errorData.details);
+                        }
+                        
+                    } catch (parseError) {
+                        console.error('❌ Erro ao parsear resposta de erro:', parseError);
                         errorMessage = `HTTP ${response.status}: ${responseText}`;
                     }
-                    throw new Error(errorMessage);
+                    
+                    // Mostrar erro específico no modal
+                    if (response.status === 500) {
+                        updatePaymentStatus('Erro interno do servidor. Verifique configurações.', 'red');
+                    } else if (response.status === 400) {
+                        updatePaymentStatus('Dados inválidos enviados.', 'red');
+                    } else {
+                        updatePaymentStatus(`Erro ${response.status}: ${errorMessage}`, 'red');
+                    }
+                    
+                    throw new Error(`${errorMessage}${errorDetails ? ' - ' + errorDetails : ''}`);
                 }
 
-                const payment = JSON.parse(responseText);
+                let payment;
+                try {
+                    payment = JSON.parse(responseText);
+                    console.log('✅ Pagamento criado com sucesso:', payment);
+                } catch (parseError) {
+                    console.error('❌ Erro ao parsear resposta de sucesso:', parseError);
+                    throw new Error('Resposta inválida do servidor');
+                }
 
                 // Exibir QR Code
                 if (payment.qr_code_base64) {
@@ -817,6 +851,14 @@
                     console.log('✅ QR Code exibido com sucesso');
                 } else {
                     console.warn('⚠️ QR Code base64 não retornado');
+                    console.log('📊 Dados do pagamento recebidos:', payment);
+                    
+                    // Tentar usar QR Code texto se disponível
+                    if (payment.qr_code_text) {
+                        updatePaymentStatus('QR Code gerado. Use o código PIX para pagar.', 'yellow');
+                    } else {
+                        updatePaymentStatus('Pagamento criado, mas QR Code não disponível.', 'yellow');
+                    }
                 }
 
                 updatePaymentStatus('Aguardando pagamento...', 'yellow');
@@ -825,8 +867,13 @@
                 startPaymentCheck();
 
             } catch (error) {
-                console.error('❌ Erro ao criar pagamento:', error);
-                updatePaymentStatus(`Erro: ${error.message}`, 'red');
+                console.error('❌ Erro completo ao criar pagamento:', error);
+                
+                // Se não atualizou o status ainda, atualizar agora
+                const currentStatus = document.getElementById('payment-status').textContent;
+                if (currentStatus.includes('Gerando código PIX')) {
+                    updatePaymentStatus(`Erro: ${error.message}`, 'red');
+                }
             }
         }
 
