@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 import threading
 import time
 from dotenv import load_dotenv
+import tempfile
 
 # Carregar variáveis de ambiente
 load_dotenv()
@@ -20,29 +21,39 @@ app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'your-secret-key-here')
 CORS(app)
 
-# Configurações do Mercado Pago (PRODUÇÃO) - com tratamento de erro
+# Configuração do banco de dados para Render
+if os.getenv('RENDER'):
+    # No Render, usar diretório temporário
+    DB_PATH = os.path.join(tempfile.gettempdir(), 'qi_test.db')
+    print(f"🔧 Ambiente Render detectado - DB Path: {DB_PATH}")
+else:
+    DB_PATH = 'qi_test.db'
+    print(f"🔧 Ambiente local - DB Path: {DB_PATH}")
+
+# Configurações do Mercado Pago (PRODUÇÃO)
 MP_ACCESS_TOKEN = os.getenv('MP_ACCESS_TOKEN')
 if not MP_ACCESS_TOKEN:
-    print("❌ ERRO: MP_ACCESS_TOKEN não configurado!")
-    print("Configure a variável de ambiente MP_ACCESS_TOKEN no Render Dashboard")
-    # Para desenvolvimento, usar um token padrão temporário
-    MP_ACCESS_TOKEN = "TEST-TEMP"
+    raise ValueError("MP_ACCESS_TOKEN não encontrado no arquivo .env")
 
 if MP_ACCESS_TOKEN.startswith('TEST-'):
-    print("⚠️  AVISO: Usando token de TESTE. "
-          "Para produção, use token de PRODUÇÃO!")
+    print("⚠️  AVISO: Usando token de TESTE. Para produção, use token de PRODUÇÃO!")
 
-try:
-    sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
-    print("✅ Mercado Pago SDK inicializado com sucesso")
-except Exception as e:
-    print(f"❌ Erro ao inicializar Mercado Pago SDK: {e}")
-    sdk = None
+sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
+
+def get_db_connection():
+    """Função para obter conexão com o banco de dados"""
+    try:
+        conn = sqlite3.connect(DB_PATH, timeout=30.0)
+        conn.execute("PRAGMA journal_mode=WAL")  # Melhor performance
+        return conn
+    except Exception as e:
+        print(f"❌ Erro ao conectar ao banco: {e}")
+        raise
 
 # Configuração do banco de dados SQLite
 def init_db():
     try:
-        conn = sqlite3.connect('qi_test.db')
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         # Tabela para armazenar testes
@@ -79,20 +90,23 @@ def init_db():
         conn.close()
         print("✅ Banco de dados inicializado com sucesso")
     except Exception as e:
-        print(f"❌ Erro ao inicializar banco de dados: {e}")
+        print(f"❌ Erro ao inicializar banco: {e}")
+        raise
 
 # Inicializar banco
-init_db()
+try:
+    init_db()
+except Exception as e:
+    print(f"❌ ERRO CRÍTICO: Falha ao inicializar banco de dados: {e}")
 
 # Limpeza automática de testes expirados
 def cleanup_expired_tests():
     while True:
         try:
-            conn = sqlite3.connect('qi_test.db')
+            conn = get_db_connection()
             cursor = conn.cursor()
             cursor.execute(
-                'DELETE FROM tests WHERE expires_at < ? '
-                'AND payment_status = "pending"',
+                'DELETE FROM tests WHERE expires_at < ? AND payment_status = "pending"',
                 (datetime.now(),))
             deleted = cursor.rowcount
             if deleted > 0:
@@ -100,7 +114,7 @@ def cleanup_expired_tests():
             conn.commit()
             conn.close()
         except Exception as e:
-            print(f"Erro na limpeza: {e}")
+            print(f"❌ Erro na limpeza: {e}")
 
         # Executar a cada hora
         time.sleep(3600)
@@ -112,31 +126,68 @@ cleanup_thread.start()
 @app.route('/')
 def index():
     try:
-        with open('index.html', 'r', encoding='utf-8') as f:
-            return f.read()
-    except FileNotFoundError:
-        print("❌ index.html não encontrado")
-        return jsonify({"error": "index.html não encontrado"}), 404
+        # Tentar encontrar o arquivo index.html
+        possible_paths = ['index.html', './index.html', 'templates/index.html']
+        
+        for path in possible_paths:
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    return f.read()
+            except FileNotFoundError:
+                continue
+        
+        # Se não encontrar o arquivo, retornar uma página simples
+        return """
+        <!DOCTYPE html>
+        <html>
+        <head><title>QI Test</title></head>
+        <body>
+        <h1>QI Test API</h1>
+        <p>API está funcionando! Arquivo index.html não encontrado.</p>
+        <a href="/health">Verificar saúde da API</a>
+        </body>
+        </html>
+        """
+    except Exception as e:
+        print(f"❌ Erro ao carregar index.html: {e}")
+        return jsonify({"error": "Erro ao carregar página"}), 500
 
 @app.route('/submit_test', methods=['POST'])
 def submit_test():
     """Recebe as respostas do teste e calcula a pontuação"""
     try:
-        print("📝 Iniciando processamento do teste...")
+        print("📥 Recebendo dados do teste...")
         
-        data = request.json
+        # Verificar se há dados JSON
+        if not request.is_json:
+            print("❌ Request não é JSON")
+            return jsonify({"error": "Content-Type deve ser application/json"}), 400
+        
+        data = request.get_json()
         if not data:
-            print("❌ Dados JSON não recebidos")
-            return jsonify({"error": "Dados não recebidos"}), 400
-            
+            print("❌ Dados JSON vazios")
+            return jsonify({"error": "Dados JSON inválidos ou vazios"}), 400
+        
+        print(f"📊 Dados recebidos: {data}")
+        
         user_answers = data.get('answers', [])
         customer_email = data.get('email', 'cliente@qi-test.com.br')
         
-        print(f"📊 Respostas recebidas: {len(user_answers)} respostas")
-
+        print(f"📝 Respostas: {len(user_answers)} itens")
+        print(f"📧 Email: {customer_email}")
+        
+        # Validação do número de respostas
         if len(user_answers) != 30:
-            print(f"❌ Número incorreto de respostas: {len(user_answers)}")
-            return jsonify({"error": "Número incorreto de respostas"}), 400
+            error_msg = f"Número incorreto de respostas: {len(user_answers)}/30"
+            print(f"❌ {error_msg}")
+            return jsonify({"error": error_msg}), 400
+        
+        # Validação dos tipos de dados das respostas
+        for i, answer in enumerate(user_answers):
+            if not isinstance(answer, int) or answer < 0 or answer > 4:
+                error_msg = f"Resposta inválida na posição {i}: {answer} (deve ser inteiro entre 0-4)"
+                print(f"❌ {error_msg}")
+                return jsonify({"error": error_msg}), 400
 
         # Respostas corretas (as mesmas do frontend)
         correct_answers_list = [1, 2, 3, 1, 4, 3, 2, 0, 1, 1, 1, 1, 1, 2, 2,
@@ -145,11 +196,11 @@ def submit_test():
         # Calcular pontuação
         correct_count = 0
         for i, answer in enumerate(user_answers):
-            if (i < len(correct_answers_list) and
-                    answer == correct_answers_list[i]):
+            if i < len(correct_answers_list) and answer == correct_answers_list[i]:
                 correct_count += 1
 
         percentage = (correct_count / 30) * 100
+        print(f"🎯 Acertos: {correct_count}/30 ({percentage:.1f}%)")
 
         # Calcular QI (fórmula refinada para produção)
         if percentage >= 95:
@@ -182,10 +233,11 @@ def submit_test():
 
         # Gerar UUID único
         test_uuid = str(uuid.uuid4())
+        print(f"🆔 UUID gerado: {test_uuid}")
 
+        # Salvar no banco (com melhor tratamento de erro)
         try:
-            # Salvar no banco (sem pagamento ainda)
-            conn = sqlite3.connect('qi_test.db')
+            conn = get_db_connection()
             cursor = conn.cursor()
 
             expires_at = datetime.now() + timedelta(hours=24)
@@ -200,57 +252,68 @@ def submit_test():
 
             conn.commit()
             conn.close()
-
-            print(f"✅ Teste criado: {test_uuid} - QI: {iq_score} - "
-                  f"Level: {level}")
-
-            return jsonify({
-                'success': True,
-                'test_uuid': test_uuid,
-                'score': iq_score,
-                'level': level,
-                'correct_answers': correct_count,
-                'percentage': round(percentage, 1)
-            })
             
-        except Exception as db_error:
-            print(f"❌ Erro no banco de dados: {db_error}")
-            return jsonify({"error": "Erro ao salvar teste"}), 500
+            print(f"✅ Teste salvo no banco: {test_uuid} - QI: {iq_score} - Level: {level}")
+
+        except sqlite3.Error as db_error:
+            print(f"❌ Erro do banco de dados: {db_error}")
+            return jsonify({"error": "Erro ao salvar no banco de dados"}), 500
+
+        return jsonify({
+            'success': True,
+            'test_uuid': test_uuid,
+            'score': iq_score,
+            'level': level,
+            'correct_answers': correct_count,
+            'percentage': round(percentage, 1)
+        })
 
     except Exception as e:
-        print(f"❌ Erro ao processar teste: {e}")
+        print(f"❌ Erro inesperado ao processar teste: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"Erro interno do servidor: {str(e)}"}), 500
 
 @app.route('/create_payment', methods=['POST'])
 def create_payment():
     """Cria um pagamento PIX via Mercado Pago - PRODUÇÃO"""
     try:
-        if not sdk:
-            return jsonify({"error": "Mercado Pago não configurado"}), 500
+        print("💳 Iniciando criação de pagamento...")
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Dados JSON inválidos"}), 400
             
-        data = request.json
         test_uuid = data.get('test_uuid')
+        print(f"🆔 Test UUID: {test_uuid}")
 
         if not test_uuid:
             return jsonify({"error": "test_uuid é obrigatório"}), 400
 
         # Verificar se o teste existe
-        conn = sqlite3.connect('qi_test.db')
-        cursor = conn.cursor()
-        cursor.execute('SELECT * FROM tests WHERE uuid = ?', (test_uuid,))
-        test_data = cursor.fetchone()
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM tests WHERE uuid = ?', (test_uuid,))
+            test_data = cursor.fetchone()
 
-        if not test_data:
-            conn.close()
-            return jsonify({"error": "Teste não encontrado"}), 404
+            if not test_data:
+                conn.close()
+                print(f"❌ Teste não encontrado: {test_uuid}")
+                return jsonify({"error": "Teste não encontrado"}), 404
+                
+            print(f"✅ Teste encontrado no banco")
 
-        # URL base para webhook
-        base_url = os.getenv('BASE_URL', request.host_url.rstrip('/'))
-        
-        print(f"💳 Criando pagamento para teste: {test_uuid}")
-        print(f"🔗 Webhook URL: {base_url}/webhook/mercadopago")
+        except sqlite3.Error as db_error:
+            print(f"❌ Erro ao buscar teste: {db_error}")
+            return jsonify({"error": "Erro ao acessar banco de dados"}), 500
+
+        # URL base para webhook (Render)
+        base_url = os.getenv('BASE_URL', 'https://teste-de-inteligencia.onrender.com')
+        if 'localhost' in request.host_url or '127.0.0.1' in request.host_url:
+            base_url = request.host_url.rstrip('/')
+
+        print(f"🔗 Base URL: {base_url}")
 
         # Criar pagamento no Mercado Pago (PRODUÇÃO)
         payment_data = {
@@ -258,62 +321,82 @@ def create_payment():
             "description": "Teste de QI - Resultado Completo - QI Test Pro",
             "payment_method_id": "pix",
             "payer": {
-                "email": (test_data[10] if test_data[10]
-                          else "cliente@qi-test.com.br"),
+                "email": test_data[10] if test_data[10] else "cliente@qi-test.com.br",
                 "first_name": "Cliente",
                 "last_name": "QI"
             },
             "external_reference": test_uuid,
             "notification_url": f"{base_url}/webhook/mercadopago",
-            "date_of_expiration": (datetime.now() +
-                                   timedelta(hours=2)).isoformat(),
+            "date_of_expiration": (datetime.now() + timedelta(hours=2)).isoformat(),
             "metadata": {
                 "test_uuid": test_uuid,
                 "integration": "qi_test_render"
             }
         }
 
-        payment_response = sdk.payment().create(payment_data)
+        print(f"💳 Dados do pagamento: {payment_data}")
+        print(f"🔗 Webhook URL: {base_url}/webhook/mercadopago")
+
+        try:
+            payment_response = sdk.payment().create(payment_data)
+            print(f"📤 Resposta do Mercado Pago: {payment_response}")
+
+        except Exception as mp_error:
+            print(f"❌ Erro na API do Mercado Pago: {mp_error}")
+            conn.close()
+            return jsonify({"error": f"Erro na API do Mercado Pago: {str(mp_error)}"}), 500
 
         if payment_response["status"] != 201:
             conn.close()
-            print(f"❌ Erro MP: {payment_response}")
+            print(f"❌ Erro MP - Status: {payment_response['status']}")
             return jsonify({
                 "error": "Erro ao criar pagamento",
-                "details": payment_response.get("response", {})
+                "details": payment_response.get("response", {}),
+                "status": payment_response.get("status")
             }), 500
 
         payment = payment_response["response"]
         payment_id = payment["id"]
+        print(f"✅ Pagamento criado - ID: {payment_id}")
 
         # Obter dados do PIX
-        pix_data = (payment.get("point_of_interaction", {})
-                    .get("transaction_data", {}))
+        pix_data = payment.get("point_of_interaction", {}).get("transaction_data", {})
         qr_code_text = pix_data.get("qr_code", "")
         qr_code_base64 = pix_data.get("qr_code_base64", "")
 
+        print(f"🏦 PIX - Tem QR Code: {bool(qr_code_text)}, Tem Base64: {bool(qr_code_base64)}")
+
         # Se não tiver QR code base64, gerar um
         if not qr_code_base64 and qr_code_text:
-            qr = qrcode.QRCode(version=1, box_size=10, border=5)
-            qr.add_data(qr_code_text)
-            qr.make(fit=True)
+            try:
+                qr = qrcode.QRCode(version=1, box_size=10, border=5)
+                qr.add_data(qr_code_text)
+                qr.make(fit=True)
 
-            img = qr.make_image(fill_color="black", back_color="white")
-            img_buffer = io.BytesIO()
-            img.save(img_buffer, format='PNG')
-            qr_code_base64 = base64.b64encode(img_buffer.getvalue()).decode()
+                img = qr.make_image(fill_color="black", back_color="white")
+                img_buffer = io.BytesIO()
+                img.save(img_buffer, format='PNG')
+                qr_code_base64 = base64.b64encode(img_buffer.getvalue()).decode()
+                print("✅ QR Code gerado localmente")
+            except Exception as qr_error:
+                print(f"❌ Erro ao gerar QR Code: {qr_error}")
 
         # Atualizar teste com dados do pagamento
-        cursor.execute('''
-            UPDATE tests
-            SET payment_id = ?, qr_code_data = ?
-            WHERE uuid = ?
-        ''', (payment_id, qr_code_base64, test_uuid))
+        try:
+            cursor.execute('''
+                UPDATE tests
+                SET payment_id = ?, qr_code_data = ?
+                WHERE uuid = ?
+            ''', (payment_id, qr_code_base64, test_uuid))
 
-        conn.commit()
-        conn.close()
+            conn.commit()
+            conn.close()
+            print("✅ Dados do pagamento salvos no banco")
 
-        print(f"✅ Pagamento criado: ID {payment_id}")
+        except sqlite3.Error as db_error:
+            print(f"❌ Erro ao salvar dados do pagamento: {db_error}")
+            conn.close()
+            return jsonify({"error": "Erro ao salvar dados do pagamento"}), 500
 
         return jsonify({
             'success': True,
@@ -324,79 +407,83 @@ def create_payment():
         })
 
     except Exception as e:
-        print(f"❌ Erro ao criar pagamento: {e}")
+        print(f"❌ Erro inesperado ao criar pagamento: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"Erro interno: {str(e)}"}), 500
 
 @app.route('/webhook/mercadopago', methods=['POST'])
 def mercadopago_webhook():
     """Webhook para receber notificações do Mercado Pago - PRODUÇÃO"""
     try:
-        data = request.json
+        data = request.get_json()
         print(f"🔔 Webhook recebido: {data}")
 
+        if not data:
+            print("❌ Webhook sem dados")
+            return jsonify({"status": "ok"}), 200
+
         # Log do webhook
-        conn = sqlite3.connect('qi_test.db')
-        cursor = conn.cursor()
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
 
-        payment_id = None
-        if data.get('data', {}).get('id'):
-            payment_id = data.get('data', {}).get('id')
+            payment_id = None
+            if data.get('data', {}).get('id'):
+                payment_id = data.get('data', {}).get('id')
 
-        cursor.execute('''
-            INSERT INTO webhook_logs (payment_id, status, data)
-            VALUES (?, ?, ?)
-        ''', (payment_id, data.get('action', ''), json.dumps(data)))
+            cursor.execute('''
+                INSERT INTO webhook_logs (payment_id, status, data)
+                VALUES (?, ?, ?)
+            ''', (payment_id, data.get('action', ''), json.dumps(data)))
 
-        # Verificar se é uma notificação de pagamento
-        if (data.get('action') == 'payment.updated' or
-                data.get('type') == 'payment'):
-            payment_id = data.get('data', {}).get('id')
+            # Verificar se é uma notificação de pagamento
+            if (data.get('action') == 'payment.updated' or data.get('type') == 'payment'):
+                payment_id = data.get('data', {}).get('id')
 
-            if payment_id and sdk:
-                print(f"💳 Verificando pagamento ID: {payment_id}")
+                if payment_id:
+                    print(f"💳 Verificando pagamento ID: {payment_id}")
 
-                # Buscar detalhes do pagamento
-                payment_info = sdk.payment().get(payment_id)
+                    try:
+                        # Buscar detalhes do pagamento
+                        payment_info = sdk.payment().get(payment_id)
 
-                if payment_info["status"] == 200:
-                    payment = payment_info["response"]
-                    external_reference = payment.get("external_reference")
-                    payment_status = payment.get("status")
+                        if payment_info["status"] == 200:
+                            payment = payment_info["response"]
+                            external_reference = payment.get("external_reference")
+                            payment_status = payment.get("status")
 
-                    print(f"💰 Payment ID: {payment_id}, "
-                          f"Status: {payment_status}, "
-                          f"Reference: {external_reference}")
+                            print(f"💰 Payment ID: {payment_id}, Status: {payment_status}, Reference: {external_reference}")
 
-                    if (external_reference and
-                            payment_status in ['approved', 'authorized']):
-                        # Atualizar status do teste
-                        cursor.execute('''
-                            UPDATE tests
-                            SET payment_status = 'approved'
-                            WHERE uuid = ?
-                        ''', (external_reference,))
+                            if external_reference and payment_status in ['approved', 'authorized']:
+                                # Atualizar status do teste
+                                cursor.execute('''
+                                    UPDATE tests
+                                    SET payment_status = 'approved'
+                                    WHERE uuid = ?
+                                ''', (external_reference,))
 
-                        if cursor.rowcount > 0:
-                            print(f"✅ PAGAMENTO APROVADO para teste: "
-                                  f"{external_reference}")
-                        else:
-                            print(f"⚠️  Teste não encontrado para UUID: "
-                                  f"{external_reference}")
+                                if cursor.rowcount > 0:
+                                    print(f"✅ PAGAMENTO APROVADO para teste: {external_reference}")
+                                else:
+                                    print(f"⚠️  Teste não encontrado para UUID: {external_reference}")
 
-                    elif (external_reference and
-                          payment_status in ['rejected', 'cancelled']):
-                        cursor.execute('''
-                            UPDATE tests
-                            SET payment_status = 'rejected'
-                            WHERE uuid = ?
-                        ''', (external_reference,))
-                        print(f"❌ Pagamento rejeitado para teste: "
-                              f"{external_reference}")
+                            elif external_reference and payment_status in ['rejected', 'cancelled']:
+                                cursor.execute('''
+                                    UPDATE tests
+                                    SET payment_status = 'rejected'
+                                    WHERE uuid = ?
+                                ''', (external_reference,))
+                                print(f"❌ Pagamento rejeitado para teste: {external_reference}")
 
-        conn.commit()
-        conn.close()
+                    except Exception as mp_error:
+                        print(f"❌ Erro ao buscar detalhes do pagamento: {mp_error}")
+
+            conn.commit()
+            conn.close()
+
+        except sqlite3.Error as db_error:
+            print(f"❌ Erro de banco no webhook: {db_error}")
 
         return jsonify({"status": "ok"}), 200
 
@@ -410,21 +497,26 @@ def mercadopago_webhook():
 def check_payment(test_uuid):
     """Verifica o status do pagamento para um teste"""
     try:
-        conn = sqlite3.connect('qi_test.db')
+        print(f"🔍 Verificando pagamento para UUID: {test_uuid}")
+        
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM tests WHERE uuid = ?', (test_uuid,))
         test_data = cursor.fetchone()
         conn.close()
 
         if not test_data:
+            print(f"❌ Teste não encontrado: {test_uuid}")
             return jsonify({"error": "Teste não encontrado"}), 404
 
-        # Mapear colunas (atualizado com customer_email)
+        # Mapear colunas
         columns = ['id', 'uuid', 'user_answers', 'score', 'level',
                    'correct_answers', 'percentage', 'payment_id',
                    'payment_status', 'qr_code_data', 'customer_email',
                    'created_at', 'expires_at']
         test_dict = dict(zip(columns, test_data))
+
+        print(f"💰 Status do pagamento: {test_dict['payment_status']}")
 
         return jsonify({
             'test_uuid': test_dict['uuid'],
@@ -433,8 +525,7 @@ def check_payment(test_uuid):
             'level': test_dict['level'],
             'correct_answers': test_dict['correct_answers'],
             'percentage': test_dict['percentage'],
-            'user_answers': (json.loads(test_dict['user_answers'])
-                             if test_dict['user_answers'] else [])
+            'user_answers': json.loads(test_dict['user_answers']) if test_dict['user_answers'] else []
         })
 
     except Exception as e:
@@ -445,7 +536,7 @@ def check_payment(test_uuid):
 def get_result(test_uuid):
     """Retorna o resultado completo se o pagamento foi aprovado"""
     try:
-        conn = sqlite3.connect('qi_test.db')
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM tests WHERE uuid = ?', (test_uuid,))
         test_data = cursor.fetchone()
@@ -454,7 +545,7 @@ def get_result(test_uuid):
         if not test_data:
             return jsonify({"error": "Teste não encontrado"}), 404
 
-        # Mapear colunas (atualizado com customer_email)
+        # Mapear colunas
         columns = ['id', 'uuid', 'user_answers', 'score', 'level',
                    'correct_answers', 'percentage', 'payment_id',
                    'payment_status', 'qr_code_data', 'customer_email',
@@ -476,8 +567,7 @@ def get_result(test_uuid):
             'level': test_dict['level'],
             'correct_answers': test_dict['correct_answers'],
             'percentage': test_dict['percentage'],
-            'user_answers': (json.loads(test_dict['user_answers'])
-                             if test_dict['user_answers'] else []),
+            'user_answers': json.loads(test_dict['user_answers']) if test_dict['user_answers'] else [],
             'payment_status': test_dict['payment_status']
         })
 
@@ -488,19 +578,40 @@ def get_result(test_uuid):
 @app.route('/health', methods=['GET'])
 def health():
     """Endpoint de saúde da aplicação"""
+    try:
+        # Testar conexão com banco
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*) FROM tests')
+        test_count = cursor.fetchone()[0]
+        conn.close()
+        db_status = "ok"
+    except Exception as e:
+        print(f"❌ Erro no health check do banco: {e}")
+        db_status = f"error: {str(e)}"
+        test_count = -1
+
     return jsonify({
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "version": "2.0.0-production",
+        "version": "2.1.0-production",
         "environment": os.getenv('FLASK_ENV', 'development'),
-        "mp_configured": sdk is not None
+        "database": {
+            "status": db_status,
+            "path": DB_PATH,
+            "test_count": test_count
+        },
+        "mercadopago": {
+            "token_configured": bool(MP_ACCESS_TOKEN),
+            "token_type": "PRODUCTION" if not MP_ACCESS_TOKEN.startswith('TEST-') else "TEST"
+        }
     })
 
 @app.route('/stats', methods=['GET'])
 def stats():
     """Estatísticas básicas do sistema"""
     try:
-        conn = sqlite3.connect('qi_test.db')
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         # Total de testes
@@ -508,13 +619,11 @@ def stats():
         total_tests = cursor.fetchone()[0]
 
         # Testes pagos
-        cursor.execute('SELECT COUNT(*) FROM tests '
-                       'WHERE payment_status = "approved"')
+        cursor.execute('SELECT COUNT(*) FROM tests WHERE payment_status = "approved"')
         paid_tests = cursor.fetchone()[0]
 
         # Média de QI
-        cursor.execute('SELECT AVG(score) FROM tests '
-                       'WHERE payment_status = "approved"')
+        cursor.execute('SELECT AVG(score) FROM tests WHERE payment_status = "approved"')
         avg_qi = cursor.fetchone()[0] or 0
 
         conn.close()
@@ -523,8 +632,7 @@ def stats():
             "total_tests": total_tests,
             "paid_tests": paid_tests,
             "avg_qi": round(avg_qi, 1),
-            "conversion_rate": round((paid_tests / max(total_tests, 1)) * 100,
-                                     2)
+            "conversion_rate": round((paid_tests / max(total_tests, 1)) * 100, 2)
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -536,6 +644,7 @@ if __name__ == '__main__':
     print("🚀 Servidor Flask PRODUÇÃO iniciado!")
     print(f"🔗 Porta: {port}")
     print(f"🔐 Debug: {debug}")
-    print(f"💳 Mercado Pago: {'✅ Configurado' if sdk else '❌ Não configurado'}")
+    print(f"🗄️  Database Path: {DB_PATH}")
+    print("💳 Usando Mercado Pago PRODUÇÃO")
 
     app.run(debug=debug, host='0.0.0.0', port=port)
