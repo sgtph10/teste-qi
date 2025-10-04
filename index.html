@@ -177,7 +177,7 @@
                     </button>
                     <button 
                         id="finish-btn" 
-                        onclick="showPaymentModal()" 
+                        onclick="finishQuizWithValidation()" 
                         class="hidden flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-300 text-base"
                     >
                         Ver Meu Resultado
@@ -581,6 +581,10 @@
         let paymentCheckInterval = null;
 
         function startQuiz() {
+            // Inicializar array de respostas com 30 posições undefined
+            userAnswers = new Array(30).fill(undefined);
+            currentQuestion = 0;
+            
             document.getElementById('home-screen').classList.add('hidden');
             document.getElementById('quiz-screen').classList.remove('hidden');
             showQuestion();
@@ -619,14 +623,24 @@
                 optionsContainer.appendChild(optionDiv);
             });
 
+            // Marcar resposta previamente selecionada (se houver)
+            if (userAnswers[currentQuestion] !== undefined) {
+                const previousSelection = userAnswers[currentQuestion];
+                const optionElements = document.querySelectorAll('.option');
+                if (optionElements[previousSelection]) {
+                    selectOption(previousSelection, optionElements[previousSelection]);
+                }
+            }
+
             // Resetar botões
-            document.getElementById('next-btn').disabled = true;
+            document.getElementById('next-btn').disabled = userAnswers[currentQuestion] === undefined;
             document.getElementById('next-btn').classList.remove('hidden');
             document.getElementById('finish-btn').classList.add('hidden');
 
             if (currentQuestion === QUESTIONS.length - 1) {
                 document.getElementById('next-btn').classList.add('hidden');
                 document.getElementById('finish-btn').classList.remove('hidden');
+                document.getElementById('finish-btn').disabled = userAnswers[currentQuestion] === undefined;
             }
         }
 
@@ -654,25 +668,98 @@
             }
         }
 
+        function finishQuizWithValidation() {
+            // Verificar se todas as perguntas foram respondidas
+            const missingAnswers = [];
+            for (let i = 0; i < 30; i++) {
+                if (userAnswers[i] === undefined) {
+                    missingAnswers.push(i + 1);
+                }
+            }
+
+            if (missingAnswers.length > 0) {
+                showCustomAlert(`Você ainda não respondeu às perguntas: ${missingAnswers.join(', ')}`);
+                return;
+            }
+
+            // Se todas as respostas estão preenchidas, prosseguir
+            showPaymentModal();
+        }
+
         async function showPaymentModal() {
             try {
+                // Debug: verificar dados antes de enviar
+                console.log('🔍 Verificando dados antes do envio:');
+                console.log('UserAnswers length:', userAnswers.length);
+                console.log('UserAnswers:', userAnswers);
+                
+                // Verificar se temos exatamente 30 respostas
+                if (userAnswers.length !== 30) {
+                    throw new Error(`Número incorreto de respostas: ${userAnswers.length}/30`);
+                }
+
+                // Verificar se há respostas undefined
+                const undefinedIndexes = [];
+                userAnswers.forEach((answer, index) => {
+                    if (answer === undefined || answer === null) {
+                        undefinedIndexes.push(index + 1);
+                    }
+                });
+
+                if (undefinedIndexes.length > 0) {
+                    throw new Error(`Respostas não selecionadas nas perguntas: ${undefinedIndexes.join(', ')}`);
+                }
+
+                const requestData = {
+                    answers: userAnswers,
+                    email: 'cliente@qi-test.com.br'
+                };
+
+                console.log('📤 Enviando dados para o servidor:', requestData);
+
                 // Primeiro, submeter o teste para obter o UUID
                 const response = await fetch('/submit_test', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
+                        'Accept': 'application/json'
                     },
-                    body: JSON.stringify({
-                        answers: userAnswers,
-                        email: 'cliente@qi-test.com.br'
-                    })
+                    body: JSON.stringify(requestData)
                 });
 
+                console.log('📥 Response status:', response.status);
+                console.log('📥 Response headers:', Object.fromEntries(response.headers.entries()));
+
+                const responseText = await response.text();
+                console.log('📥 Response text:', responseText);
+
                 if (!response.ok) {
-                    throw new Error('Erro ao processar teste');
+                    let errorMessage = 'Erro ao processar teste';
+                    try {
+                        const errorData = JSON.parse(responseText);
+                        errorMessage = errorData.error || errorMessage;
+                        console.error('❌ Erro detalhado do servidor:', errorData);
+                    } catch (e) {
+                        errorMessage = `HTTP ${response.status}: ${responseText}`;
+                        console.error('❌ Erro ao parsear resposta de erro:', e);
+                    }
+                    throw new Error(errorMessage);
                 }
 
-                const result = await response.json();
+                let result;
+                try {
+                    result = JSON.parse(responseText);
+                } catch (e) {
+                    console.error('❌ Erro ao parsear resposta JSON:', e);
+                    throw new Error('Resposta inválida do servidor');
+                }
+
+                console.log('✅ Resultado do teste:', result);
+                
+                if (!result.test_uuid) {
+                    throw new Error('UUID do teste não retornado pelo servidor');
+                }
+
                 testUuid = result.test_uuid;
 
                 // Mostrar modal de pagamento
@@ -682,8 +769,8 @@
                 await createPayment();
 
             } catch (error) {
-                console.error('Erro ao processar teste:', error);
-                showCustomAlert('Erro ao processar teste. Tente novamente.');
+                console.error('❌ Erro detalhado ao processar teste:', error);
+                showCustomAlert(`Erro: ${error.message}`);
             }
         }
 
@@ -691,26 +778,45 @@
             try {
                 updatePaymentStatus('Gerando código PIX...', 'yellow');
 
+                console.log('💳 Criando pagamento para teste UUID:', testUuid);
+
                 const response = await fetch('/create_payment', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
+                        'Accept': 'application/json'
                     },
                     body: JSON.stringify({
                         test_uuid: testUuid
                     })
                 });
 
+                console.log('💳 Payment response status:', response.status);
+
+                const responseText = await response.text();
+                console.log('💳 Payment response:', responseText);
+
                 if (!response.ok) {
-                    throw new Error('Erro ao criar pagamento');
+                    let errorMessage = 'Erro ao criar pagamento';
+                    try {
+                        const errorData = JSON.parse(responseText);
+                        errorMessage = errorData.error || errorMessage;
+                    } catch (e) {
+                        errorMessage = `HTTP ${response.status}: ${responseText}`;
+                    }
+                    throw new Error(errorMessage);
                 }
 
-                const payment = await response.json();
+                const payment = JSON.parse(responseText);
 
                 // Exibir QR Code
                 if (payment.qr_code_base64) {
                     const qrCodeElement = document.getElementById('qr-code');
                     qrCodeElement.innerHTML = `<img src="data:image/png;base64,${payment.qr_code_base64}" alt="QR Code PIX" class="w-32 h-32 rounded-lg">`;
+                    
+                    console.log('✅ QR Code exibido com sucesso');
+                } else {
+                    console.warn('⚠️ QR Code base64 não retornado');
                 }
 
                 updatePaymentStatus('Aguardando pagamento...', 'yellow');
@@ -719,8 +825,8 @@
                 startPaymentCheck();
 
             } catch (error) {
-                console.error('Erro ao criar pagamento:', error);
-                updatePaymentStatus('Erro ao gerar PIX. Tente novamente.', 'red');
+                console.error('❌ Erro ao criar pagamento:', error);
+                updatePaymentStatus(`Erro: ${error.message}`, 'red');
             }
         }
 
@@ -729,17 +835,28 @@
                 clearInterval(paymentCheckInterval);
             }
 
+            console.log('⏰ Iniciando verificação de pagamento para UUID:', testUuid);
+
             paymentCheckInterval = setInterval(async () => {
                 try {
-                    const response = await fetch(`/check_payment/${testUuid}`);
+                    console.log('🔍 Verificando status do pagamento...');
+                    
+                    const response = await fetch(`/check_payment/${testUuid}`, {
+                        method: 'GET',
+                        headers: {
+                            'Accept': 'application/json'
+                        }
+                    });
                     
                     if (!response.ok) {
-                        throw new Error('Erro ao verificar pagamento');
+                        throw new Error(`HTTP ${response.status}`);
                     }
 
                     const status = await response.json();
+                    console.log('💰 Status do pagamento:', status);
 
                     if (status.payment_status === 'approved') {
+                        console.log('✅ Pagamento aprovado!');
                         clearInterval(paymentCheckInterval);
                         updatePaymentStatus('Pagamento confirmado!', 'green');
                         
@@ -747,9 +864,11 @@
                             closePaymentModal();
                             showResult(status);
                         }, 1500);
+                    } else {
+                        console.log('⏳ Pagamento ainda pendente:', status.payment_status);
                     }
                 } catch (error) {
-                    console.error('Erro ao verificar pagamento:', error);
+                    console.error('❌ Erro ao verificar pagamento:', error);
                 }
             }, 3000); // Verificar a cada 3 segundos
 
@@ -1190,8 +1309,8 @@
             const modal = document.createElement('div');
             modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
             modal.innerHTML = `
-                <div class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg max-w-sm w-full mx-4">
-                    <p class="text-gray-700 dark:text-gray-300 mb-4">${message}</p>
+                <div class="bg-gray-800 p-6 rounded-lg shadow-lg max-w-sm w-full mx-4 border border-gray-600">
+                    <p class="text-gray-300 mb-4">${message}</p>
                     <div class="flex justify-end">
                         <button class="px-4 py-2 bg-primary text-white hover:bg-primary-dark rounded" onclick="this.closest('.fixed').remove()">OK</button>
                     </div>
